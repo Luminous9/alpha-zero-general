@@ -1,5 +1,6 @@
 *.pyc
 .DS_Store
+.venv/
 
 /temp/
 /.project
@@ -10,4 +11,3 @@ checkpoints/
 
 # For PyCharm users
 .idea/
-
