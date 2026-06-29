@@ -21,6 +21,9 @@ class MCTS():
         self.Nsa = {}  # stores #times edge s,a was visited
         self.Ns = {}  # stores #times board s was visited
         self.Ps = {}  # stores initial policy (returned by neural net)
+        self.Qs = {}  # stores per-state Q values indexed by action
+        self.Nsas = {}  # stores per-state edge visit counts indexed by action
+        self.As = {}  # stores legal action indices for each state
 
         self.Es = {}  # stores game.getGameEnded ended for board s
         self.Vs = {}  # stores game.getValidMoves for board s
@@ -45,9 +48,15 @@ class MCTS():
         additional simulations.
         """
         s = self.game.stringRepresentation(canonicalBoard)
-        counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(self.game.getActionSize())]
+        if s in self.Nsas:
+            counts = self.Nsas[s].astype(np.float64)
+        else:
+            counts = np.array(
+                [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(self.game.getActionSize())],
+                dtype=np.float64,
+            )
 
-        counts_sum = float(sum(counts))
+        counts_sum = float(np.sum(counts))
         if counts_sum == 0:
             if s in self.Ps:
                 probs = self.Ps[s]
@@ -63,10 +72,10 @@ class MCTS():
             probs[bestA] = 1
             return probs
 
-        counts = [x ** (1. / temp) for x in counts]
-        counts_sum = float(sum(counts))
-        probs = [x / counts_sum for x in counts]
-        return probs
+        counts = counts ** (1. / temp)
+        counts_sum = float(np.sum(counts))
+        probs = counts / counts_sum
+        return list(probs)
 
     def search(self, canonicalBoard):
         """
@@ -108,7 +117,9 @@ class MCTS():
             s = self.game.stringRepresentation(board)
 
             if s not in self.Es:
-                self.Es[s] = self.game.getGameEnded(board, 1)
+                self.Es[s], valids = self._get_game_ended_and_valids(board)
+                if valids is not None:
+                    self.Vs[s] = valids
             if self.Es[s] != 0:
                 return {
                     'needs_eval': False,
@@ -149,7 +160,9 @@ class MCTS():
 
     def _expand_leaf(self, s, canonicalBoard, policy):
         self.Ps[s] = policy
-        valids = self.game.getValidMoves(canonicalBoard, 1)
+        valids = self.Vs.get(s)
+        if valids is None:
+            valids = self.game.getValidMoves(canonicalBoard, 1)
         self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
         sum_Ps_s = np.sum(self.Ps[s])
         if sum_Ps_s > 0:
@@ -164,30 +177,50 @@ class MCTS():
             self.Ps[s] /= np.sum(self.Ps[s])
 
         self.Vs[s] = valids
+        self.As[s] = np.flatnonzero(valids)
+        self.Qs[s] = np.zeros(self.game.getActionSize(), dtype=np.float32)
+        self.Nsas[s] = np.zeros(self.game.getActionSize(), dtype=np.int32)
         self.Ns[s] = 0
 
+    def _get_game_ended_and_valids(self, canonicalBoard):
+        if hasattr(self.game, 'getGameEndedAndValidMoves'):
+            return self.game.getGameEndedAndValidMoves(canonicalBoard, 1)
+        return self.game.getGameEnded(canonicalBoard, 1), None
+
     def _best_action(self, s):
-        valids = self.Vs[s]
-        cur_best = -float('inf')
-        best_act = -1
+        actions = self.As[s]
+        edge_counts = self.Nsas[s][actions]
+        visited = edge_counts > 0
+        u = np.empty(len(actions), dtype=np.float32)
 
-        # pick the action with the highest upper confidence bound
-        for a in range(self.game.getActionSize()):
-            if valids[a]:
-                if (s, a) in self.Qsa:
-                    u = self.Qsa[(s, a)] + self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (
-                            1 + self.Nsa[(s, a)])
-                else:
-                    u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)  # Q = 0 ?
+        if np.any(visited):
+            visited_actions = actions[visited]
+            u[visited] = (
+                self.Qs[s][visited_actions]
+                + self.args.cpuct
+                * self.Ps[s][visited_actions]
+                * math.sqrt(self.Ns[s])
+                / (1 + self.Nsas[s][visited_actions])
+            )
 
-                if u > cur_best:
-                    cur_best = u
-                    best_act = a
+        if np.any(~visited):
+            unvisited_actions = actions[~visited]
+            u[~visited] = (
+                self.args.cpuct
+                * self.Ps[s][unvisited_actions]
+                * math.sqrt(self.Ns[s] + EPS)
+            )
 
-        return best_act
+        return int(actions[int(np.argmax(u))])
 
     def _update_edge(self, s, a, v):
-        if (s, a) in self.Qsa:
+        if s in self.Qs:
+            visits = self.Nsas[s][a]
+            self.Qs[s][a] = (visits * self.Qs[s][a] + v) / (visits + 1)
+            self.Nsas[s][a] = visits + 1
+            self.Qsa[(s, a)] = float(self.Qs[s][a])
+            self.Nsa[(s, a)] = int(self.Nsas[s][a])
+        elif (s, a) in self.Qsa:
             self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
             self.Nsa[(s, a)] += 1
 

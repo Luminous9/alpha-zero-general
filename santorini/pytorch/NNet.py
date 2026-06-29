@@ -66,6 +66,7 @@ class NNetWrapper(NeuralNet):
         examples: list of examples, each example is of form (board, pi, v)
         """
         optimizer = optim.Adam(self.nnet.parameters(), lr=args.lr)
+        encoded_boards, target_pis, target_vs = self._encode_training_examples(examples)
 
         for epoch in range(args.epochs):
             self.nnet.train()
@@ -82,19 +83,18 @@ class NNetWrapper(NeuralNet):
             t = tqdm(range(batch_count), desc='Training Net', disable=args.quiet)
             for _ in t:
                 sample_ids = np.random.randint(len(examples), size=args.batch_size)
-                boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
-                boards = torch.FloatTensor(self.encode_boards(boards))
-                target_pis = torch.FloatTensor(np.array(pis, dtype=np.float32))
-                target_vs = torch.FloatTensor(np.array(vs, dtype=np.float32))
+                boards = torch.from_numpy(encoded_boards[sample_ids])
+                batch_target_pis = torch.from_numpy(target_pis[sample_ids])
+                batch_target_vs = torch.from_numpy(target_vs[sample_ids])
 
                 if args.cuda:
                     boards = boards.contiguous().cuda()
-                    target_pis = target_pis.contiguous().cuda()
-                    target_vs = target_vs.contiguous().cuda()
+                    batch_target_pis = batch_target_pis.contiguous().cuda()
+                    batch_target_vs = batch_target_vs.contiguous().cuda()
 
                 out_pi, out_v = self.nnet(boards)
-                l_pi = self.loss_pi(target_pis, out_pi)
-                l_v = self.loss_v(target_vs, out_v)
+                l_pi = self.loss_pi(batch_target_pis, out_pi)
+                l_v = self.loss_v(batch_target_vs, out_v)
                 total_loss = l_pi + l_v
 
                 pi_losses.update(l_pi.item(), boards.size(0))
@@ -114,6 +114,14 @@ class NNetWrapper(NeuralNet):
                     pi_losses.avg,
                     v_losses.avg,
                 )
+
+    def _encode_training_examples(self, examples):
+        boards, pis, vs = list(zip(*examples))
+        return (
+            self.encode_boards(boards),
+            np.array(pis, dtype=np.float32),
+            np.array(vs, dtype=np.float32),
+        )
 
     def predict(self, board):
         """

@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from santorini.SantoriniGame import SantoriniGame
+from santorini.SantoriniLogic import Board
 
 
 class TestSantoriniRules(unittest.TestCase):
@@ -116,6 +117,33 @@ class TestSantoriniRules(unittest.TestCase):
         valids = self.game.getValidMoves(board, 1)
         for sym_board, sym_pi in self.game.getSymmetries(board, valids):
             self.assertTrue(np.array_equal(np.array(sym_pi), self.game.getValidMoves(sym_board, 1)))
+
+    def test_fast_valid_moves_match_legacy_board_logic_on_reachable_positions(self):
+        board = self.game.getInitBoard()
+
+        for _ in range(20):
+            legacy_board = Board(5)
+            legacy_board.pieces = np.copy(board)
+            expected = np.array(legacy_board.get_legal_moves_binary(1))
+
+            actual = self.game.getValidMoves(board, 1)
+
+            np.testing.assert_array_equal(actual, expected)
+            if self.game.getGameEnded(board, 1) != 0:
+                break
+
+            legal_actions = np.flatnonzero(actual)
+            action = int(legal_actions[np.random.randint(len(legal_actions))])
+            board, next_player = self.game.getNextState(board, 1, action)
+            board = self.game.getCanonicalForm(board, next_player)
+
+    def test_combined_game_ended_returns_valids_for_non_terminal_state(self):
+        board = self.game.getInitBoard()
+
+        ended, valids = self.game.getGameEndedAndValidMoves(board, 1)
+
+        self.assertEqual(ended, 0)
+        np.testing.assert_array_equal(valids, self.game.getValidMoves(board, 1))
 
 
 if __name__ == "__main__":

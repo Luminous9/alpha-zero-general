@@ -27,7 +27,100 @@ class SantoriniGame(Game):
     def __init__(self, board_length=5, true_random_placement=False):
         self.n = board_length
         self.true_random_placement = true_random_placement
+        self._directions_array = np.array(self.__directions, dtype=np.int8)
+        self._action_worker = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_move_direction = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_build_direction = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_move_dx = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_move_dy = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_build_dx = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_build_dy = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._local_action_move_on_board = np.zeros((self.n, self.n, 64), dtype=bool)
+        self._local_action_move_x = np.zeros((self.n, self.n, 64), dtype=np.int8)
+        self._local_action_move_y = np.zeros((self.n, self.n, 64), dtype=np.int8)
+        self._local_action_build_on_board = np.zeros((self.n, self.n, 64), dtype=bool)
+        self._local_action_build_x = np.zeros((self.n, self.n, 64), dtype=np.int8)
+        self._local_action_build_y = np.zeros((self.n, self.n, 64), dtype=np.int8)
+        self._local_action_build_on_origin = np.zeros((self.n, self.n, 64), dtype=bool)
+        self._canonical_multiplier = {
+            1: np.array(
+                [np.ones((self.n, self.n), dtype=int), np.ones((self.n, self.n), dtype=int)]
+            ),
+            -1: np.array(
+                [-np.ones((self.n, self.n), dtype=int), np.ones((self.n, self.n), dtype=int)]
+            ),
+        }
+        self._init_action_tables()
+        self._init_local_action_geometry_tables()
+        self._policy_symmetry_permutations = self._init_policy_symmetry_permutations()
         
+    def _init_action_tables(self):
+        for action in range(self.getActionSize()):
+            local_action = action % 64
+            move_direction = local_action // 8
+            build_direction = local_action % 8
+            move_dx, move_dy = self.__directions[move_direction]
+            build_dx, build_dy = self.__directions[build_direction]
+
+            self._action_worker[action] = action // 64
+            self._action_move_direction[action] = move_direction
+            self._action_build_direction[action] = build_direction
+            self._action_move_dx[action] = move_dx
+            self._action_move_dy[action] = move_dy
+            self._action_build_dx[action] = build_dx
+            self._action_build_dy[action] = build_dy
+
+    def _init_local_action_geometry_tables(self):
+        for x in range(self.n):
+            for y in range(self.n):
+                for local_action in range(64):
+                    move_direction = local_action // 8
+                    build_direction = local_action % 8
+                    move_dx, move_dy = self.__directions[move_direction]
+                    build_dx, build_dy = self.__directions[build_direction]
+                    move_x = x + move_dx
+                    move_y = y + move_dy
+
+                    if not self._is_on_board(move_x, move_y):
+                        continue
+
+                    build_x = move_x + build_dx
+                    build_y = move_y + build_dy
+                    self._local_action_move_on_board[x, y, local_action] = True
+                    self._local_action_move_x[x, y, local_action] = move_x
+                    self._local_action_move_y[x, y, local_action] = move_y
+
+                    if self._is_on_board(build_x, build_y):
+                        self._local_action_build_on_board[x, y, local_action] = True
+                        self._local_action_build_x[x, y, local_action] = build_x
+                        self._local_action_build_y[x, y, local_action] = build_y
+                        self._local_action_build_on_origin[x, y, local_action] = (
+                            build_x == x and build_y == y
+                        )
+
+    def _init_policy_symmetry_permutations(self):
+        permutations = {}
+        for rotations in range(4):
+            for flip in (False, True):
+                direction_map = self._direction_transform_indices(rotations, flip)
+                old_indices = np.arange(self.getActionSize())
+                new_indices = np.zeros(self.getActionSize(), dtype=np.int16)
+
+                for worker_offset in (0, 64):
+                    for move_direction in range(8):
+                        for build_direction in range(8):
+                            old_action = worker_offset + move_direction * 8 + build_direction
+                            new_action = (
+                                worker_offset
+                                + direction_map[move_direction] * 8
+                                + direction_map[build_direction]
+                            )
+                            new_indices[old_action] = new_action
+
+                permutations[(rotations, flip)] = (old_indices, new_indices)
+
+        return permutations
+
     def getInitBoard(self):
         # return initial board (numpy board)
         b = Board(self.n, true_random_placement=self.true_random_placement)
@@ -47,58 +140,94 @@ class SantoriniGame(Game):
         # action must be a valid move
 
         piece_locations = self.getCharacterLocations(board, player)
+        action = int(action)
+        worker_idx = int(self._action_worker[action])
+        move_dx = int(self._action_move_dx[action])
+        move_dy = int(self._action_move_dy[action])
+        build_dx = int(self._action_build_dx[action])
+        build_dy = int(self._action_build_dy[action])
 
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        
-        #color = player
-        if action > 63:
-            char_idx = 1          #character is 2
-            action = action % 64
-        else:
-            char_idx = 0          #character is 1
-        action_move = action // 8
-        action_build = action % 8 
-        
-        try:
-            action_move = self.__directions[action_move]
-        except IndexError as e:
-            print(e)
-            print("index error on action_move from directions")
-            self.display(board)
-            print('player: ', player)
-            print('action: ', action)
-            print('char_idx: ', char_idx)
-            print('action_move: ', action_move)
-            print('action_build: ', action_build)
-        action_build = self.__directions[action_build]
-        
-        char = piece_locations[char_idx]
-        
-        action_move = (action_move[0]+char[0], action_move[1]+char[1])
-        action_build = (action_move[0]+ action_build[0], action_move[1]+action_build[1])
-        action = [char, action_move, action_build]        
+        current = piece_locations[worker_idx]
+        move = (current[0] + move_dx, current[1] + move_dy)
+        build = (move[0] + build_dx, move[1] + build_dy)
 
-        try:
-            b.execute_move(action, player)
-        except IndexError as e:
-            print(e)
-            self.display(board)
-#            print('l')
-#            print(l)
-            print('player: ', player)
-            print('action: ', action)
-        return (b.pieces, -player)
+        next_board = board.copy()
+        piece = next_board[0][current]
+        next_board[0][current] = 0
+        next_board[0][move] = piece
+
+        if next_board[1][move] != 3:
+            next_board[1][build] += 1
+
+        return (next_board, -player)
 
     def getValidMoves(self, board, player):
         # return a fixed size binary vector
-        #_, _, valids = board.get_all_moves
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        color = player
-        #valids = []
-        return np.array(b.get_legal_moves_binary(color))
-        # Get all the squares with pieces of the given color.
+        return self._get_valid_moves_fast(board, player)
+
+    def getGameEndedAndValidMoves(self, board, player):
+        player_pieces = self.getCharacterLocations(board, player)
+        opponent_pieces = self.getCharacterLocations(board, -1 * player)
+
+        for piece in player_pieces:
+            if board[1][piece] == 3:
+                return 1, None
+
+        for piece in opponent_pieces:
+            if board[1][piece] == 3:
+                return -1, None
+
+        valids = self._get_valid_moves_fast(board, player, player_pieces=player_pieces)
+        if not np.any(valids):
+            return -1, valids
+        return 0, valids
+
+    def _get_valid_moves_fast(self, board, player, player_pieces=None):
+        pieces = board[0]
+        heights = board[1]
+        valids = np.zeros(self.getActionSize(), dtype=np.int8)
+        player_pieces = player_pieces or self.getCharacterLocations(board, player)
+
+        for worker_idx, worker in enumerate(player_pieces):
+            x, y = worker
+            origin_height = heights[x, y]
+            worker_offset = worker_idx * 64
+
+            move_x = self._local_action_move_x[x, y]
+            move_y = self._local_action_move_y[x, y]
+            build_x = self._local_action_build_x[x, y]
+            build_y = self._local_action_build_y[x, y]
+
+            move_heights = heights[move_x, move_y]
+            build_heights = heights[build_x, build_y]
+            moved_to_level_three = move_heights == 3
+
+            move_legal = (
+                self._local_action_move_on_board[x, y]
+                & (pieces[move_x, move_y] == 0)
+                & (move_heights <= 3)
+                & ((move_heights - origin_height) <= 1)
+            )
+            build_legal = (
+                self._local_action_build_on_board[x, y]
+                & (
+                    moved_to_level_three
+                    | (
+                        (
+                            self._local_action_build_on_origin[x, y]
+                            | (pieces[build_x, build_y] == 0)
+                        )
+                        & (build_heights <= 3)
+                    )
+                )
+            )
+
+            valids[worker_offset:worker_offset + 64] = move_legal & build_legal
+
+        return valids
+
+    def _is_on_board(self, x, y):
+        return 0 <= x < self.n and 0 <= y < self.n
 
     def getValidMovesHuman(self, board, player):
         b = Board(self.n)
@@ -113,16 +242,13 @@ class SantoriniGame(Game):
         """
         Returns a list of both character's locations as tuples for the player
         """
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        
         color = player
     
         # Get all the squares with pieces of the given color.
-        char1_location = np.where(b.pieces[0] == 1*color)
+        char1_location = np.where(board[0] == 1*color)
         char1_location = (char1_location[0][0], char1_location[1][0])
 
-        char2_location = np.where(b.pieces[0] == 2*color)
+        char2_location = np.where(board[0] == 2*color)
         char2_location = (char2_location[0][0], char2_location[1][0])
         
         return [char1_location, char2_location]
@@ -138,23 +264,8 @@ class SantoriniGame(Game):
             r: 0 if game has not ended. 1 if THIS player has won, -1 if player THIS lost,
                small non-zero value for draw.
         """
-        
-        
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        player_pieces = self.getCharacterLocations(b.pieces, player)
-        opponent_pieces = self.getCharacterLocations(b.pieces, -1*player)
-        
-        for piece in player_pieces:
-            if b.pieces[1][piece] == 3:
-                return 1
-        
-        for piece in opponent_pieces:
-            if b.pieces[1][piece] == 3:
-                return -1
-        if (not b.has_legal_moves(player)):
-            return -1
-        return 0
+        ended, _ = self.getGameEndedAndValidMoves(board, player)
+        return ended
 
 
 
@@ -163,7 +274,7 @@ class SantoriniGame(Game):
        
     def getCanonicalForm(self, board, player):
         # return state if player==1, else return -state if player==-1
-        board = board * np.append(np.ones((1,self.n,self.n), dtype='int')*player, np.ones((1,self.n,self.n), dtype='int'), axis=0)
+        board = board * self._canonical_multiplier[player]
         
         return board
 
@@ -190,6 +301,7 @@ class SantoriniGame(Game):
         assert(len(pi) == 128)  # each player has two pieces which can move in 
 
         syms = []
+        pi = np.asarray(pi)
 
         for rotations in range(4):
             for flip in [False, True]:
@@ -201,26 +313,19 @@ class SantoriniGame(Game):
 
                 syms.append((
                     np.array([newB0, newB1]),
-                    list(self._transform_policy(pi, rotations, flip)),
+                    self._transform_policy_array(pi, rotations, flip),
                 ))
 
         return syms
 
     def _transform_policy(self, pi, rotations, flip):
-        direction_map = self._direction_transform_indices(rotations, flip)
         transformed = np.zeros(128, dtype=np.asarray(pi).dtype)
+        return self._transform_policy_array(np.asarray(pi), rotations, flip)
 
-        for worker_offset in (0, 64):
-            for move_direction in range(8):
-                for build_direction in range(8):
-                    old_action = worker_offset + move_direction * 8 + build_direction
-                    new_action = (
-                        worker_offset
-                        + direction_map[move_direction] * 8
-                        + direction_map[build_direction]
-                    )
-                    transformed[new_action] = pi[old_action]
-
+    def _transform_policy_array(self, pi, rotations, flip):
+        transformed = np.zeros(128, dtype=pi.dtype)
+        old_indices, new_indices = self._policy_symmetry_permutations[(rotations, flip)]
+        transformed[new_indices] = pi[old_indices]
         return transformed
 
     def _direction_transform_indices(self, rotations, flip):
