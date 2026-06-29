@@ -37,8 +37,24 @@ class MCTS():
         for i in range(self.args.numMCTSSims):
             self.search(canonicalBoard)
 
+        return self.getActionProbFromTree(canonicalBoard, temp=temp)
+
+    def getActionProbFromTree(self, canonicalBoard, temp=1):
+        """
+        Returns the MCTS visit-count policy for canonicalBoard without running
+        additional simulations.
+        """
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(self.game.getActionSize())]
+
+        counts_sum = float(sum(counts))
+        if counts_sum == 0:
+            if s in self.Ps:
+                probs = self.Ps[s]
+            else:
+                valids = self.game.getValidMoves(canonicalBoard, 1)
+                probs = valids / np.sum(valids)
+            return list(probs)
 
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
@@ -72,35 +88,85 @@ class MCTS():
             v: the negative of the value of the current canonicalBoard
         """
 
-        s = self.game.stringRepresentation(canonicalBoard)
+        leaf = self.select_leaf(canonicalBoard)
+        if leaf['needs_eval']:
+            policy, value = self.nnet.predict(leaf['board'])
+            return self.complete_search(leaf, policy, value)
+        return self.complete_search(leaf)
 
-        if s not in self.Es:
-            self.Es[s] = self.game.getGameEnded(canonicalBoard, 1)
-        if self.Es[s] != 0:
-            # terminal node
-            return -self.Es[s]
+    def select_leaf(self, canonicalBoard):
+        """
+        Walks the current tree until it reaches either a terminal node or an
+        unexpanded leaf. The returned object can be passed to complete_search()
+        after neural network evaluation, which lets callers batch those
+        evaluations across multiple MCTS instances.
+        """
+        path = []
+        board = canonicalBoard
 
-        if s not in self.Ps:
-            # leaf node
-            self.Ps[s], v = self.nnet.predict(canonicalBoard)
-            valids = self.game.getValidMoves(canonicalBoard, 1)
-            self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
-            sum_Ps_s = np.sum(self.Ps[s])
-            if sum_Ps_s > 0:
-                self.Ps[s] /= sum_Ps_s  # renormalize
-            else:
-                # if all valid moves were masked make all valid moves equally probable
+        while True:
+            s = self.game.stringRepresentation(board)
 
-                # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.   
-                log.error("All valid moves were masked, doing a workaround.")
-                self.Ps[s] = self.Ps[s] + valids
-                self.Ps[s] /= np.sum(self.Ps[s])
+            if s not in self.Es:
+                self.Es[s] = self.game.getGameEnded(board, 1)
+            if self.Es[s] != 0:
+                return {
+                    'needs_eval': False,
+                    'path': path,
+                    'value': -self.Es[s],
+                }
 
-            self.Vs[s] = valids
-            self.Ns[s] = 0
-            return -v
+            if s not in self.Ps:
+                return {
+                    'needs_eval': True,
+                    'path': path,
+                    'board': board,
+                    'state_key': s,
+                }
 
+            a = self._best_action(s)
+            path.append((s, a))
+            next_s, next_player = self.game.getNextState(board, 1, a)
+            board = self.game.getCanonicalForm(next_s, next_player)
+
+    def complete_search(self, leaf, policy=None, value=None):
+        """
+        Expands an evaluated leaf, then backs its value up along the selection
+        path. For terminal leaves, policy/value are omitted.
+        """
+        if leaf['needs_eval']:
+            self._expand_leaf(leaf['state_key'], leaf['board'], policy)
+            propagated_value = -value
+        else:
+            propagated_value = leaf['value']
+
+        for s, a in reversed(leaf['path']):
+            self._update_edge(s, a, propagated_value)
+            self.Ns[s] += 1
+            propagated_value = -propagated_value
+
+        return propagated_value
+
+    def _expand_leaf(self, s, canonicalBoard, policy):
+        self.Ps[s] = policy
+        valids = self.game.getValidMoves(canonicalBoard, 1)
+        self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
+        sum_Ps_s = np.sum(self.Ps[s])
+        if sum_Ps_s > 0:
+            self.Ps[s] /= sum_Ps_s  # renormalize
+        else:
+            # if all valid moves were masked make all valid moves equally probable
+
+            # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
+            # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.
+            log.error("All valid moves were masked, doing a workaround.")
+            self.Ps[s] = self.Ps[s] + valids
+            self.Ps[s] /= np.sum(self.Ps[s])
+
+        self.Vs[s] = valids
+        self.Ns[s] = 0
+
+    def _best_action(self, s):
         valids = self.Vs[s]
         cur_best = -float('inf')
         best_act = -1
@@ -118,12 +184,9 @@ class MCTS():
                     cur_best = u
                     best_act = a
 
-        a = best_act
-        next_s, next_player = self.game.getNextState(canonicalBoard, 1, a)
-        next_s = self.game.getCanonicalForm(next_s, next_player)
+        return best_act
 
-        v = self.search(next_s)
-
+    def _update_edge(self, s, a, v):
         if (s, a) in self.Qsa:
             self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
             self.Nsa[(s, a)] += 1
@@ -131,6 +194,3 @@ class MCTS():
         else:
             self.Qsa[(s, a)] = v
             self.Nsa[(s, a)] = 1
-
-        self.Ns[s] += 1
-        return -v

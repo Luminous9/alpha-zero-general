@@ -3,8 +3,53 @@ import pickle
 import tempfile
 import unittest
 
+import numpy as np
+
 from Coach import Coach
 from utils import dotdict
+
+
+class TinyGame:
+    def getInitBoard(self):
+        return np.array([0], dtype=np.int64)
+
+    def getActionSize(self):
+        return 2
+
+    def getNextState(self, board, player, action):
+        return np.array([board[0] + 1], dtype=np.int64), -player
+
+    def getValidMoves(self, board, player):
+        return np.array([1, 1], dtype=np.int64)
+
+    def getGameEnded(self, board, player):
+        if board[0] >= 2:
+            return -1
+        return 0
+
+    def getCanonicalForm(self, board, player):
+        return board
+
+    def getSymmetries(self, board, pi):
+        return [(board, pi)]
+
+    def stringRepresentation(self, board):
+        return board.tobytes()
+
+
+class BatchCountingNNet:
+    def __init__(self, game):
+        self.game = game
+        self.batch_sizes = []
+
+    def predict(self, board):
+        return np.array([0.5, 0.5], dtype=np.float32), 0.0
+
+    def predict_batch(self, boards):
+        self.batch_sizes.append(len(boards))
+        policies = np.tile(np.array([0.5, 0.5], dtype=np.float32), (len(boards), 1))
+        values = np.zeros(len(boards), dtype=np.float32)
+        return policies, values
 
 
 class TestSantoriniCoachExamples(unittest.TestCase):
@@ -40,6 +85,30 @@ class TestSantoriniCoachExamples(unittest.TestCase):
 
             self.assertEqual(coach.trainExamplesHistory, examples)
             self.assertFalse(coach.skipFirstSelfPlay)
+
+
+class TestSantoriniCoachBatchedSelfPlay(unittest.TestCase):
+    def test_batched_self_play_uses_batched_prediction(self):
+        np.random.seed(13)
+        game = TinyGame()
+        nnet = BatchCountingNNet(game)
+        args = dotdict({
+            'numMCTSSims': 2,
+            'cpuct': 1.0,
+            'tempThreshold': 10,
+            'selfPlayBatchSize': 2,
+            'quiet': True,
+        })
+        coach = Coach(game, nnet, args)
+
+        examples = coach.executeEpisodesBatched(2)
+
+        self.assertEqual(len(examples), 4)
+        self.assertGreaterEqual(max(nnet.batch_sizes), 2)
+        for board, pi, value in examples:
+            self.assertEqual(board.shape, (1,))
+            self.assertAlmostEqual(float(sum(pi)), 1.0, places=5)
+            self.assertIn(value, [-1, 1])
 
 
 if __name__ == "__main__":

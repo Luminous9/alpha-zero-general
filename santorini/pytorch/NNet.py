@@ -119,7 +119,14 @@ class NNetWrapper(NeuralNet):
         """
         board: canonical Santorini rules board with shape (2, n, n)
         """
-        encoded = torch.FloatTensor(self.encode_board(board)).view(1, args.input_channels, self.board_x, self.board_y)
+        pis, vs = self.predict_batch([board])
+        return pis[0], float(vs[0])
+
+    def predict_batch(self, boards):
+        """
+        boards: iterable of canonical Santorini rules boards with shape (2, n, n)
+        """
+        encoded = torch.FloatTensor(self.encode_boards(boards))
         if args.cuda:
             encoded = encoded.contiguous().cuda()
 
@@ -127,7 +134,7 @@ class NNetWrapper(NeuralNet):
         with torch.no_grad():
             pi, v = self.nnet(encoded)
 
-        return torch.exp(pi).data.cpu().numpy()[0], float(v.item())
+        return torch.exp(pi).data.cpu().numpy(), v.view(-1).data.cpu().numpy()
 
     def loss_pi(self, targets, outputs):
         return -torch.sum(targets * outputs) / targets.size()[0]

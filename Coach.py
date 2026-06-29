@@ -32,6 +32,9 @@ class Coach():
     def _quiet(self):
         return bool(getattr(self.args, 'quiet', False))
 
+    def _self_play_batch_size(self):
+        return max(1, int(getattr(self.args, 'selfPlayBatchSize', 1)))
+
     def executeEpisode(self):
         """
         This function executes one episode of self-play, starting with player 1.
@@ -71,6 +74,100 @@ class Coach():
             if r != 0:
                 return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
 
+    def executeEpisodesBatched(self, numEpisodes):
+        """
+        Executes self-play episodes in a batch of active games. MCTS trees stay
+        independent per game, but neural-network leaf evaluations are batched
+        across those trees.
+        """
+        completedExamples = []
+        activeEpisodes = []
+        launched = 0
+        completed = 0
+        batch_size = self._self_play_batch_size()
+        progress = tqdm(total=numEpisodes, desc="Self Play", disable=self._quiet())
+
+        try:
+            while completed < numEpisodes:
+                while launched < numEpisodes and len(activeEpisodes) < batch_size:
+                    activeEpisodes.append({
+                        'board': self.game.getInitBoard(),
+                        'curPlayer': 1,
+                        'episodeStep': 0,
+                        'trainExamples': [],
+                        'mcts': MCTS(self.game, self.nnet, self.args),
+                    })
+                    launched += 1
+
+                for episode in activeEpisodes:
+                    episode['episodeStep'] += 1
+                    episode['canonicalBoard'] = self.game.getCanonicalForm(
+                        episode['board'],
+                        episode['curPlayer'],
+                    )
+                    episode['temp'] = int(episode['episodeStep'] < self.args.tempThreshold)
+
+                action_probs = self._getBatchedActionProbs(activeEpisodes)
+                still_active = []
+
+                for episode, pi in zip(activeEpisodes, action_probs):
+                    sym = self.game.getSymmetries(episode['canonicalBoard'], pi)
+                    for b, p in sym:
+                        episode['trainExamples'].append([b, episode['curPlayer'], p, None])
+
+                    action = np.random.choice(len(pi), p=pi)
+                    episode['board'], episode['curPlayer'] = self.game.getNextState(
+                        episode['board'],
+                        episode['curPlayer'],
+                        action,
+                    )
+
+                    r = self.game.getGameEnded(episode['board'], episode['curPlayer'])
+                    if r != 0:
+                        completedExamples.extend(
+                            (x[0], x[2], r * ((-1) ** (x[1] != episode['curPlayer'])))
+                            for x in episode['trainExamples']
+                        )
+                        completed += 1
+                        progress.update(1)
+                    else:
+                        still_active.append(episode)
+
+                activeEpisodes = still_active
+        finally:
+            progress.close()
+
+        return completedExamples
+
+    def _getBatchedActionProbs(self, episodes):
+        for _ in range(self.args.numMCTSSims):
+            pending = []
+
+            for episode in episodes:
+                leaf = episode['mcts'].select_leaf(episode['canonicalBoard'])
+                if leaf['needs_eval']:
+                    pending.append((episode['mcts'], leaf))
+                else:
+                    episode['mcts'].complete_search(leaf)
+
+            if not pending:
+                continue
+
+            boards = [leaf['board'] for _, leaf in pending]
+            if hasattr(self.nnet, 'predict_batch'):
+                policies, values = self.nnet.predict_batch(boards)
+            else:
+                predictions = [self.nnet.predict(board) for board in boards]
+                policies, values = zip(*predictions)
+
+            for (mcts, leaf), policy, value in zip(pending, policies, values):
+                mcts.complete_search(leaf, policy, float(value))
+
+        return [
+            episode['mcts'].getActionProbFromTree(episode['canonicalBoard'], temp=episode['temp'])
+            for episode in episodes
+        ]
+
     def learn(self):
         """
         Performs numIters iterations with numEps episodes of self-play in each
@@ -87,9 +184,12 @@ class Coach():
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                for _ in tqdm(range(self.args.numEps), desc="Self Play", disable=self._quiet()):
-                    self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
-                    iterationTrainExamples += self.executeEpisode()
+                if self._self_play_batch_size() > 1:
+                    iterationTrainExamples += self.executeEpisodesBatched(self.args.numEps)
+                else:
+                    for _ in tqdm(range(self.args.numEps), desc="Self Play", disable=self._quiet()):
+                        self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
+                        iterationTrainExamples += self.executeEpisode()
 
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)

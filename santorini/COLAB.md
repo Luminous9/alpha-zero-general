@@ -50,6 +50,7 @@ If you do not already have a checkpoint in Drive, start without `--load-model` o
   --num-iters 100 \
   --num-eps 80 \
   --num-mcts-sims 64 \
+  --self-play-batch-size 32 \
   --arena-compare 80 \
   --update-threshold 0.50 \
   --epochs 3 \
@@ -72,6 +73,7 @@ This loads `best.pth.tar` by default. For that normal resume path, Santorini ask
   --num-iters 100 \
   --num-eps 80 \
   --num-mcts-sims 64 \
+  --self-play-batch-size 32 \
   --arena-compare 80 \
   --update-threshold 0.50 \
   --epochs 3 \
@@ -79,6 +81,8 @@ This loads `best.pth.tar` by default. For that normal resume path, Santorini ask
   --seed 9 \
   --quiet
 ```
+
+Use `--self-play-batch-size` to run multiple active self-play games while batching MCTS leaf inference through the GPU. On Colab, start around `32`; if GPU memory is comfortable and CPU move generation is keeping up, try `64`.
 
 Use `--examples-file filename.examples` when you want to force a specific replay file; relative paths are checked inside the load folder and from the launch directory. Use `--skip-first-self-play` only if the loaded examples were generated from the exact loaded model and you intentionally want to train immediately before collecting fresh games.
 

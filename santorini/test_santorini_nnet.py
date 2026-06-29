@@ -48,6 +48,21 @@ class TestSantoriniNNet(unittest.TestCase):
         self.assertGreaterEqual(v, -1.0)
         self.assertLessEqual(v, 1.0)
 
+    def test_predict_batch_returns_policy_and_values(self):
+        boards = [
+            self.game.getCanonicalForm(self.game.getInitBoard(), 1),
+            self.game.getCanonicalForm(self.game.getInitBoard(), 1),
+        ]
+
+        pis, vs = self.nnet.predict_batch(boards)
+
+        self.assertEqual(pis.shape, (2, 128))
+        self.assertEqual(vs.shape, (2,))
+        for pi in pis:
+            self.assertAlmostEqual(float(pi.sum()), 1.0, places=5)
+        self.assertTrue(np.all(vs >= -1.0))
+        self.assertTrue(np.all(vs <= 1.0))
+
     def test_single_training_step_runs(self):
         old_epochs = nnet_args.epochs
         old_batch_size = nnet_args.batch_size

@@ -33,16 +33,16 @@ Your neural network acts as the "intuition" of the AI. It takes the current boar
 
 Neural networks for board games "see" the board as a stack of 2D grids (a 3D tensor of shape $5 \times 5 \times C$, where $C$ is the number of channels). Do not feed the network raw integers (like a `3` for a 3-block tower); use binary channels (1s and 0s) so the network can easily recognize patterns.
 
-| Channel | Data ($5 \times 5$ grids) | Description                                                              |
-| ------- | ------------------------- | ------------------------------------------------------------------------ |
-| **0**   | Current Worker 1          | `1` where the canonical current player's worker `1` stands, `0` else.   |
-| **1**   | Current Worker 2          | `1` where the canonical current player's worker `2` stands, `0` else.   |
-| **2**   | Opponent Worker 1         | `1` where the canonical opponent's worker `1` stands, `0` else.         |
-| **3**   | Opponent Worker 2         | `1` where the canonical opponent's worker `2` stands, `0` else.         |
-| **4**   | Level 1 Buildings         | `1` on spaces with exactly 1 block.                                      |
-| **5**   | Level 2 Buildings         | `1` on spaces with exactly 2 blocks.                                     |
-| **6**   | Level 3 Buildings         | `1` on spaces with exactly 3 blocks.                                     |
-| **7**   | Domes                     | `1` on spaces with a dome.                                               |
+| Channel | Data ($5 \times 5$ grids) | Description                                                           |
+| ------- | ------------------------- | --------------------------------------------------------------------- |
+| **0**   | Current Worker 1          | `1` where the canonical current player's worker `1` stands, `0` else. |
+| **1**   | Current Worker 2          | `1` where the canonical current player's worker `2` stands, `0` else. |
+| **2**   | Opponent Worker 1         | `1` where the canonical opponent's worker `1` stands, `0` else.       |
+| **3**   | Opponent Worker 2         | `1` where the canonical opponent's worker `2` stands, `0` else.       |
+| **4**   | Level 1 Buildings         | `1` on spaces with exactly 1 block.                                   |
+| **5**   | Level 2 Buildings         | `1` on spaces with exactly 2 blocks.                                  |
+| **6**   | Level 3 Buildings         | `1` on spaces with exactly 3 blocks.                                  |
+| **7**   | Domes                     | `1` on spaces with a dome.                                            |
 
 _(Note: Ground level is implied when channels 4-7 are all 0)._
 
@@ -260,3 +260,11 @@ Before moving to Colab-scale runs, we tightened the training runner:
 - Colab setup lives in `santorini/COLAB.md`
 
 Next training direction: continue from `./temp/santorini_selfplay_50k_more/best.pth.tar` on Colab or a long local run with Drive/durable checkpoints, loading replay examples when available. Start with `--num-eps 80`, `--num-mcts-sims 64`, `--arena-compare 80`, `--update-threshold 0.50`, `--epochs 3`, `--history-iters 5`, and `--quiet`; after each long segment, evaluate against greedy at both 64 and 128 sims with at least 100 games.
+
+## Long Training Results
+
+1. Run #1 on Colab (11 iterations):
+    - vs previous local best, 64 sims: 68-32
+    - vs previous local best, 128 sims: 71-29
+    - vs greedy, 64 sims: 92-8
+    - _promoted as new baseline_
