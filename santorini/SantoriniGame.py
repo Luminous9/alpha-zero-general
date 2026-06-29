@@ -499,29 +499,24 @@ class SantoriniGame(Game):
     @staticmethod
     def display(board):
         n = board.shape[1]
-        print("   ", end="")
-        for y in range(n):
-            print(y, end=" ")
-        print("")
-        print("-----------------------")
-        for y in range(n):
-            print(y, "|", end="")    # print the row #
-            for x in range(n):
-                piece = board[0][y][x]    # get the piece to print
+        columns = [chr(ord('A') + col) for col in range(n)]
+        print("    " + " ".join(columns))
+        print("  " + "-" * (2 * n + 3))
+        for row in range(n):
+            print(row + 1, "|", end="")
+            for col in range(n):
+                piece = board[0][row][col]
                 print(SantoriniGame.square_content[piece], end=" ")
             print("|")
 
-        print("-----------------------")
-        print("   ", end="")
-        for y in range(n):
-            print(y, end=" ")
-        print("")
-        print("-----------------------")
-        for y in range(n):
-            print(y, "|", end="")    # print the row #
-            for x in range(n):
-                piece = board[1][y][x]    # get the piece to print
-                print(piece, end=" ")
+        print("  " + "-" * (2 * n + 3))
+        print("    " + " ".join(columns))
+        print("  " + "-" * (2 * n + 3))
+        for row in range(n):
+            print(row + 1, "|", end="")
+            for col in range(n):
+                height = board[1][row][col]
+                print(height, end=" ")
             print("|")
 
-        print("-----------------------")
+        print("  " + "-" * (2 * n + 3))

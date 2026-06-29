@@ -1,5 +1,30 @@
 import numpy as np
 
+SANTORINI_DIRECTIONS = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
+
+
+def coordinate_label(location):
+    row, col = location
+    return "{}{}".format(chr(ord('A') + col), row + 1)
+
+
+def parse_coordinate(text, board_size):
+    text = text.strip().upper()
+    if len(text) < 2:
+        raise ValueError("Coordinates should look like A1, B3, or E5.")
+
+    col = ord(text[0]) - ord('A')
+    try:
+        row = int(text[1:]) - 1
+    except ValueError:
+        raise ValueError("Coordinates should use a letter column and numeric row, like B3.")
+
+    if not (0 <= row < board_size and 0 <= col < board_size):
+        max_coordinate = "{}{}".format(chr(ord('A') + board_size - 1), board_size)
+        raise ValueError("Coordinates must be between A1 and {}.".format(max_coordinate))
+    return row, col
+
+
 # Renamed OthelloPlayers.py Function
 class RandomPlayer():
     def __init__(self, game):
@@ -18,21 +43,61 @@ class HumanSantoriniPlayer():
         self.game = game
 
     def play(self, board):
-        # display(board)
-        valids, all_moves, all_moves_binary = self.game.getValidMovesHuman(board, 1)
+        valids = self.game.getValidMoves(board, 1)
+        worker_locations = self.game.getCharacterLocations(board, 1)
+        print(
+            "Your workers: O at {}, U at {}.".format(
+                coordinate_label(worker_locations[0]),
+                coordinate_label(worker_locations[1]),
+            )
+        )
+        while True:
+            entered = input("\nEnter move as '<worker> <move-to> <build-at>' (example: O B3 C2), or q to quit: ").strip()
+            if entered.lower() in ('q', 'quit', 'exit'):
+                raise KeyboardInterrupt
+            if entered.lower() in ('h', 'help', '?'):
+                print("Example: O B3 C2 means move worker O to B3, then build on C2.")
+                continue
+            try:
+                action = self._parse_action(board, entered)
+            except ValueError as error:
+                print("Sorry, {}".format(error))
+                continue
+            if valids[action]:
+                return action
+            print("Sorry, that move/build is not legal in the current position.")
 
-        for i in range(len(all_moves)):
-            if all_moves_binary[i]:
-                print("|{}: {}, {}, {}|".format(i, all_moves[i][0], all_moves[i][1], all_moves[i][2]))
-#                print("[", int(i/self.game.n), int(i%self.game.n), end="] ")
-        valid_move = False
-        while not valid_move:
-            input_move = int(input("\nPlease enter a move number: "))
-            if all_moves_binary[input_move]:
-                valid_move = True
-            else:
-                print("Sorry, that move is not valid. Please enter another.")
-        return input_move
+    def _parse_action(self, board, entered):
+        parts = entered.replace(',', ' ').split()
+        if len(parts) != 3:
+            raise ValueError("use exactly three parts, like O B3 C2")
+
+        worker_name = parts[0].upper()
+        if worker_name not in ('O', 'U'):
+            raise ValueError("worker must be O or U")
+
+        worker_idx = 0 if worker_name == 'O' else 1
+        worker_location = self.game.getCharacterLocations(board, 1)[worker_idx]
+        move_location = parse_coordinate(parts[1], self.game.n)
+        build_location = parse_coordinate(parts[2], self.game.n)
+
+        move_delta = (
+            move_location[0] - worker_location[0],
+            move_location[1] - worker_location[1],
+        )
+        build_delta = (
+            build_location[0] - move_location[0],
+            build_location[1] - move_location[1],
+        )
+
+        if move_delta not in SANTORINI_DIRECTIONS:
+            raise ValueError("move-to square must be adjacent to worker {}".format(worker_name))
+        if build_delta not in SANTORINI_DIRECTIONS:
+            raise ValueError("build square must be adjacent to the move-to square")
+
+        move_direction = SANTORINI_DIRECTIONS.index(move_delta)
+        build_direction = SANTORINI_DIRECTIONS.index(build_delta)
+        return worker_idx * 64 + move_direction * 8 + build_direction
 
 # Renamed OthelloPlayers.py Function
 class GreedySantoriniPlayer():

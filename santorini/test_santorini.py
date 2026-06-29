@@ -4,6 +4,7 @@ import numpy as np
 
 from santorini.SantoriniGame import SantoriniGame
 from santorini.SantoriniLogic import Board
+from santorini.SantoriniPlayers import HumanSantoriniPlayer, coordinate_label, parse_coordinate
 
 
 class TestSantoriniRules(unittest.TestCase):
@@ -144,6 +145,22 @@ class TestSantoriniRules(unittest.TestCase):
 
         self.assertEqual(ended, 0)
         np.testing.assert_array_equal(valids, self.game.getValidMoves(board, 1))
+
+    def test_human_coordinate_parser_uses_letter_columns_and_one_based_rows(self):
+        self.assertEqual(parse_coordinate('B3', 5), (2, 1))
+        self.assertEqual(parse_coordinate('b3', 5), (2, 1))
+        self.assertEqual(coordinate_label((2, 1)), 'B3')
+        with self.assertRaises(ValueError):
+            parse_coordinate('F1', 5)
+
+    def test_human_text_action_maps_to_engine_action(self):
+        board = self.game.getInitBoard()
+        player = HumanSantoriniPlayer(self.game)
+
+        action = player._parse_action(board, 'O B1 A1')
+
+        self.assertEqual(action, 3)
+        self.assertEqual(self.game.getValidMoves(board, 1)[action], 1)
 
 
 if __name__ == "__main__":
