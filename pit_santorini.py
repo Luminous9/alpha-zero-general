@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import numpy as np
@@ -27,6 +28,7 @@ def main():
     parser.add_argument('--checkpoint-folder', default='./temp/santorini_quick/')
     parser.add_argument('--checkpoint-file', default='best.pth.tar')
     parser.add_argument('--fresh', action='store_true', help='Use an untrained network even if a checkpoint exists.')
+    parser.add_argument('--json-out', help='Optional path to write evaluation results as JSON.')
     args = parser.parse_args()
 
     game = SantoriniGame(5, true_random_placement=True)
@@ -50,6 +52,25 @@ def main():
     print("Neural MCTS wins: {}".format(nnet_wins))
     print("{} wins: {}".format(args.baseline.title(), baseline_wins))
     print("Draws: {}".format(draws))
+
+    if args.json_out:
+        result = {
+            'baseline': args.baseline,
+            'games': args.games,
+            'sims': args.sims,
+            'checkpoint_folder': args.checkpoint_folder,
+            'checkpoint_file': args.checkpoint_file,
+            'fresh': args.fresh,
+            'neural_mcts_wins': int(nnet_wins),
+            'baseline_wins': int(baseline_wins),
+            'draws': int(draws),
+        }
+        json_dir = os.path.dirname(args.json_out)
+        if json_dir:
+            os.makedirs(json_dir, exist_ok=True)
+        with open(args.json_out, 'w') as f:
+            json.dump(result, f, indent=2, sort_keys=True)
+        print("Wrote JSON results: {}".format(args.json_out))
 
 
 if __name__ == "__main__":

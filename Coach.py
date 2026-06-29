@@ -29,6 +29,9 @@ class Coach():
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
         self.skipFirstSelfPlay = False  # can be overriden in loadTrainExamples()
 
+    def _quiet(self):
+        return bool(getattr(self.args, 'quiet', False))
+
     def executeEpisode(self):
         """
         This function executes one episode of self-play, starting with player 1.
@@ -84,7 +87,7 @@ class Coach():
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                for _ in tqdm(range(self.args.numEps), desc="Self Play"):
+                for _ in tqdm(range(self.args.numEps), desc="Self Play", disable=self._quiet()):
                     self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
                     iterationTrainExamples += self.executeEpisode()
 
@@ -98,6 +101,7 @@ class Coach():
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  
             self.saveTrainExamples(i - 1)
+            self.saveTrainExamplesFile('latest.examples')
 
             # shuffle examples before training
             trainExamples = []
@@ -125,33 +129,76 @@ class Coach():
             else:
                 log.info('ACCEPTING NEW MODEL')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
+                self.saveTrainExamplesFile(self.getCheckpointFile(i) + ".examples")
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+                self.saveTrainExamplesFile('best.pth.tar.examples')
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pth.tar'
 
     def saveTrainExamples(self, iteration):
+        self.saveTrainExamplesFile(self.getCheckpointFile(iteration) + ".examples")
+
+    def saveTrainExamplesFile(self, examples_filename):
         folder = self.args.checkpoint
         if not os.path.exists(folder):
             os.makedirs(folder)
-        filename = os.path.join(folder, self.getCheckpointFile(iteration) + ".examples")
+        filename = os.path.join(folder, examples_filename)
         with open(filename, "wb+") as f:
             Pickler(f).dump(self.trainExamplesHistory)
         f.closed
 
-    def loadTrainExamples(self):
-        modelFile = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
-        examplesFile = modelFile + ".examples"
-        if not os.path.isfile(examplesFile):
-            log.warning(f'File "{examplesFile}" with trainExamples not found!')
+    def _examplesCandidates(self, examplesFile=None):
+        load_folder, load_file = self.args.load_folder_file
+        modelFile = os.path.join(load_folder, load_file)
+        candidates = []
+
+        if examplesFile:
+            if os.path.isabs(examplesFile):
+                candidates.append(examplesFile)
+            else:
+                candidates.append(os.path.join(load_folder, examplesFile))
+                candidates.append(examplesFile)
+
+        candidates.extend([
+            modelFile + ".examples",
+            os.path.join(load_folder, 'latest.examples'),
+            os.path.join(load_folder, 'best.pth.tar.examples'),
+        ])
+
+        if os.path.isdir(load_folder):
+            checkpoint_examples = [
+                os.path.join(load_folder, filename)
+                for filename in os.listdir(load_folder)
+                if filename.startswith('checkpoint_') and filename.endswith('.pth.tar.examples')
+            ]
+            candidates.extend(sorted(checkpoint_examples, key=os.path.getmtime, reverse=True))
+
+        deduped = []
+        seen = set()
+        for candidate in candidates:
+            normalized = os.path.abspath(candidate)
+            if normalized not in seen:
+                seen.add(normalized)
+                deduped.append(candidate)
+        return deduped
+
+    def loadTrainExamples(self, examplesFile=None, skipFirstSelfPlay=True):
+        candidates = self._examplesCandidates(examplesFile)
+        found_examples = next((path for path in candidates if os.path.isfile(path)), None)
+
+        if not found_examples:
+            log.warning('No trainExamples file found. Checked: %s', ', '.join(candidates))
             r = input("Continue? [y|n]")
             if r != "y":
                 sys.exit()
-        else:
-            log.info("File with trainExamples found. Loading it...")
-            with open(examplesFile, "rb") as f:
-                self.trainExamplesHistory = Unpickler(f).load()
-            log.info('Loading done!')
+            return
 
-            # examples based on the model were already collected (loaded)
-            self.skipFirstSelfPlay = True
+        log.info('Loading trainExamples from "%s"...', found_examples)
+        with open(found_examples, "rb") as f:
+            self.trainExamplesHistory = Unpickler(f).load()
+        log.info('Loading done!')
+
+        # Keep the legacy behavior available for callers that intentionally resume
+        # from examples that were generated by the loaded model.
+        self.skipFirstSelfPlay = skipFirstSelfPlay

@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 
@@ -13,6 +14,8 @@ import torch.optim as optim
 
 from .SantoriniNNet import SantoriniNNet
 
+log = logging.getLogger(__name__)
+
 
 args = dotdict({
     'lr': 0.001,
@@ -24,6 +27,7 @@ args = dotdict({
     'num_channels': 64,
     'num_residual_blocks': 5,
     'value_hidden_size': 128,
+    'quiet': False,
 })
 
 
@@ -64,14 +68,18 @@ class NNetWrapper(NeuralNet):
         optimizer = optim.Adam(self.nnet.parameters(), lr=args.lr)
 
         for epoch in range(args.epochs):
-            print('EPOCH ::: ' + str(epoch + 1))
             self.nnet.train()
             pi_losses = AverageMeter()
             v_losses = AverageMeter()
 
             batch_count = max(1, int(np.ceil(len(examples) / args.batch_size)))
 
-            t = tqdm(range(batch_count), desc='Training Net')
+            if args.quiet:
+                log.info('Training epoch %s/%s (%s batches)', epoch + 1, args.epochs, batch_count)
+            else:
+                print('EPOCH ::: ' + str(epoch + 1))
+
+            t = tqdm(range(batch_count), desc='Training Net', disable=args.quiet)
             for _ in t:
                 sample_ids = np.random.randint(len(examples), size=args.batch_size)
                 boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
@@ -91,11 +99,21 @@ class NNetWrapper(NeuralNet):
 
                 pi_losses.update(l_pi.item(), boards.size(0))
                 v_losses.update(l_v.item(), boards.size(0))
-                t.set_postfix(Loss_pi=pi_losses, Loss_v=v_losses)
+                if not args.quiet:
+                    t.set_postfix(Loss_pi=pi_losses, Loss_v=v_losses)
 
                 optimizer.zero_grad()
                 total_loss.backward()
                 optimizer.step()
+
+            if args.quiet:
+                log.info(
+                    'Finished epoch %s/%s: pi_loss=%.4f v_loss=%.4f',
+                    epoch + 1,
+                    args.epochs,
+                    pi_losses.avg,
+                    v_losses.avg,
+                )
 
     def predict(self, board):
         """
@@ -120,10 +138,12 @@ class NNetWrapper(NeuralNet):
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+            if not args.quiet:
+                print("Checkpoint Directory does not exist! Making directory {}".format(folder))
             os.makedirs(folder)
         else:
-            print("Checkpoint Directory exists! ")
+            if not args.quiet:
+                print("Checkpoint Directory exists! ")
         torch.save({
             'state_dict': self.nnet.state_dict(),
         }, filepath)

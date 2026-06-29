@@ -26,10 +26,11 @@ class SantoriniGame(Game):
 
     def __init__(self, board_length=5, true_random_placement=False):
         self.n = board_length
+        self.true_random_placement = true_random_placement
         
     def getInitBoard(self):
         # return initial board (numpy board)
-        b = Board(self.n)
+        b = Board(self.n, true_random_placement=self.true_random_placement)
         return np.array(b.pieces)
 
     def getBoardSize(self):
@@ -187,56 +188,53 @@ class SantoriniGame(Game):
         # mirror, rotational
 
         assert(len(pi) == 128)  # each player has two pieces which can move in 
-        
-        b = Board(self.n)
-        b.pieces = np.copy(board)
-        
+
         syms = []
-        
-        Pi0 = pi[:64]
-        Pi1 = pi[64:]
-        
-        
-        for i in range(1, 5):
-            for k in [True, False]:
-                # rotate board:
-                newB0 = np.rot90(b.pieces[0], 1)
-                newB1 = np.rot90(b.pieces[1], 1)
-                
-                # rotate pi:
-                newPi0 = self.rotate(Pi0)
-                newPi1 = self.rotate(Pi1)
-                
-                
-                # We will record  var_, which may be modified by a flip, but
-                # reinitialize the next rotation/flip with var to get all syms:
-                # rotate, rotate+flip, rotate^2, rotate^2+flip, 
-                # rotate^3, rotate^3+flip, rotate^4=Identity, rotate^4+flip
-                newB0_          = newB0
-                newB1_          = newB1
-                newPi0_         = newPi0
-                newPi1_         = newPi1
-                if k:
-                    # flip board: 
-                    newB0_ = np.fliplr(newB0)
-                    newB1_ = np.fliplr(newB1)
-                    
-                    # flip pi:
-                    newPi0_ = self.flip(Pi0)
-                    newPi1_ = self.flip(Pi1)
-                                        
-                newPi = np.ravel([newPi0_, newPi1_])
-                
-                # record the symmetry
-                syms += [(np.array([newB0_, newB1_]), list(newPi))]        
-        
-                # reset the board as the rotated one values with the new values
-                b.pieces[0] = np.copy(newB0)
-                b.pieces[1] = np.copy(newB1)
-                Pi0 = newPi0
-                Pi1 = newPi1
-                
-        return syms        
+
+        for rotations in range(4):
+            for flip in [False, True]:
+                newB0 = np.rot90(board[0], rotations)
+                newB1 = np.rot90(board[1], rotations)
+                if flip:
+                    newB0 = np.fliplr(newB0)
+                    newB1 = np.fliplr(newB1)
+
+                syms.append((
+                    np.array([newB0, newB1]),
+                    list(self._transform_policy(pi, rotations, flip)),
+                ))
+
+        return syms
+
+    def _transform_policy(self, pi, rotations, flip):
+        direction_map = self._direction_transform_indices(rotations, flip)
+        transformed = np.zeros(128, dtype=np.asarray(pi).dtype)
+
+        for worker_offset in (0, 64):
+            for move_direction in range(8):
+                for build_direction in range(8):
+                    old_action = worker_offset + move_direction * 8 + build_direction
+                    new_action = (
+                        worker_offset
+                        + direction_map[move_direction] * 8
+                        + direction_map[build_direction]
+                    )
+                    transformed[new_action] = pi[old_action]
+
+        return transformed
+
+    def _direction_transform_indices(self, rotations, flip):
+        direction_to_index = {direction: i for i, direction in enumerate(self.__directions)}
+        transformed_indices = []
+
+        for dx, dy in self.__directions:
+            for _ in range(rotations):
+                dx, dy = -dy, dx
+            if flip:
+                dy = -dy
+            transformed_indices.append(direction_to_index[(dx, dy)])
+
+        return transformed_indices
                 
     def rotate(self, pi_64):
         """
@@ -358,7 +356,7 @@ class SantoriniGame(Game):
 
 
     def stringRepresentation(self, board):
-        return board.tostring()
+        return board.tobytes()
 
     def stringRepresentationReadable(self, board):
         # Do not think this works.

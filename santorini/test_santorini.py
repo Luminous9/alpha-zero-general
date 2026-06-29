@@ -22,14 +22,18 @@ class TestSantoriniRules(unittest.TestCase):
         return x == 0 or y == 0 or x == 4 or y == 4
 
     def test_random_starts_reject_players_with_both_workers_on_outer_edge(self):
+        random_game = SantoriniGame(5, true_random_placement=True)
+        seen_starts = set()
         for _ in range(200):
-            board = self.game.getInitBoard()
-            player_locations = self.game.getCharacterLocations(board, 1)
-            opponent_locations = self.game.getCharacterLocations(board, -1)
+            board = random_game.getInitBoard()
+            seen_starts.add(board[0].tobytes())
+            player_locations = random_game.getCharacterLocations(board, 1)
+            opponent_locations = random_game.getCharacterLocations(board, -1)
 
             self.assertEqual(len({*player_locations, *opponent_locations}), 4)
             self.assertFalse(all(self.is_outer_edge(loc) for loc in player_locations))
             self.assertFalse(all(self.is_outer_edge(loc) for loc in opponent_locations))
+        self.assertGreater(len(seen_starts), 1)
 
     def test_cannot_move_onto_dome_even_from_level_three(self):
         board = self.empty_board()

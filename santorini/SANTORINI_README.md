@@ -1,5 +1,7 @@
 # Santorini Rules and Structures
 
+For longer GPU training runs, see [COLAB.md](COLAB.md).
+
 [Santorini](https://en.wikipedia.org/wiki/Santorini_(game)) is a two-player competative board game that takes place on a 5x5 board. Each player has two character pieces, (an infinite number of) cubic building pieces as well as dome pieces. 
 Players begin the game by alternatingly placing their character pieces on an empty board space. At this point the board is empty except for the 4 player pieces (2 for each player). 
 

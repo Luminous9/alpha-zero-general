@@ -1,0 +1,152 @@
+import unittest
+
+import numpy as np
+
+from MCTS import MCTS
+from pretrain_santorini_greedy import blocking_targets, greedy_targets
+from santorini.SantoriniGame import SantoriniGame
+from santorini.SantoriniPlayers import GreedySantoriniPlayer
+from utils import dotdict
+
+
+DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+
+
+def action(worker_index, move_direction, build_direction):
+    return worker_index * 64 + move_direction * 8 + build_direction
+
+
+def decoded_action(game, board, action_id):
+    worker_index = 1 if action_id > 63 else 0
+    local_action = action_id % 64
+    move_direction = local_action // 8
+    build_direction = local_action % 8
+    worker = game.getCharacterLocations(board, 1)[worker_index]
+    move = (
+        worker[0] + DIRECTIONS[move_direction][0],
+        worker[1] + DIRECTIONS[move_direction][1],
+    )
+    build = (
+        move[0] + DIRECTIONS[build_direction][0],
+        move[1] + DIRECTIONS[build_direction][1],
+    )
+    return worker, move, build
+
+
+class OnePlyGreedyNNet:
+    def __init__(self, game):
+        self.game = game
+
+    def predict(self, board):
+        valids = self.game.getValidMoves(board, 1)
+        policy = np.zeros(self.game.getActionSize(), dtype=np.float32)
+        legal_actions = np.flatnonzero(valids)
+
+        if len(legal_actions) == 0:
+            return policy, -1
+
+        scores = []
+        for action_id in legal_actions:
+            next_board, _ = self.game.getNextState(board, 1, int(action_id))
+            scores.append(self.game.getScore(next_board, 1))
+        scores = np.array(scores, dtype=np.float32)
+        scores = scores - np.max(scores)
+        weights = np.exp(scores)
+        policy[legal_actions] = weights / np.sum(weights)
+
+        best_score = float(np.max(scores))
+        value = 1.0 if best_score >= 100 else 0.0
+        return policy, value
+
+
+class TestSantoriniTactics(unittest.TestCase):
+    def setUp(self):
+        self.game = SantoriniGame(5)
+
+    def empty_board(self):
+        board = np.zeros((2, 5, 5), dtype=int)
+        board[0, 2, 2] = 1
+        board[0, 0, 0] = 2
+        board[0, 4, 4] = -1
+        board[0, 4, 3] = -2
+        return board
+
+    def test_greedy_label_prefers_all_immediate_win_suffixes(self):
+        board = self.empty_board()
+        board[1, 2, 2] = 2
+        board[1, 2, 3] = 3
+
+        policy, value, best_score, tie_count = greedy_targets(self.game, board)
+        east_winning_actions = range(action(0, 4, 0), action(0, 4, 7) + 1)
+
+        self.assertEqual(best_score, 100)
+        self.assertEqual(value, 1)
+        self.assertEqual(tie_count, 8)
+        for action_id in east_winning_actions:
+            self.assertGreater(policy[action_id], 0)
+        self.assertAlmostEqual(float(np.sum(policy)), 1.0)
+
+    def test_greedy_player_takes_immediate_win(self):
+        board = self.empty_board()
+        board[1, 2, 2] = 2
+        board[1, 2, 3] = 3
+
+        chosen_action = GreedySantoriniPlayer(self.game).play(board)
+
+        self.assertIn(chosen_action, range(action(0, 4, 0), action(0, 4, 7) + 1))
+
+    def test_blocking_opponent_level_three_square_is_legal(self):
+        board = self.empty_board()
+        board[0, 2, 2] = 1
+        board[0, 0, 0] = 2
+        board[0, 1, 2] = -1
+        board[0, 4, 3] = -2
+        board[1, 1, 2] = 2
+        board[1, 1, 3] = 3
+
+        valids = self.game.getValidMoves(board, 1)
+        legal_actions = np.flatnonzero(valids)
+        blocking_actions = []
+        for action_id in legal_actions:
+            _, _, build = decoded_action(self.game, board, int(action_id))
+            if build == (1, 3):
+                blocking_actions.append(int(action_id))
+
+        self.assertGreater(len(blocking_actions), 0)
+        next_board, _ = self.game.getNextState(board, 1, blocking_actions[0])
+        self.assertEqual(next_board[1, 1, 3], 4)
+
+    def test_blocking_label_prefers_doming_opponent_win_square(self):
+        board = self.empty_board()
+        board[0, 2, 2] = 1
+        board[0, 0, 0] = 2
+        board[0, 1, 2] = -1
+        board[0, 4, 3] = -2
+        board[1, 1, 2] = 2
+        board[1, 1, 3] = 3
+
+        policy, value, threat_count, block_count = blocking_targets(self.game, board)
+        support = np.flatnonzero(policy)
+
+        self.assertEqual(value, 0.5)
+        self.assertEqual(threat_count, 1)
+        self.assertEqual(block_count, len(support))
+        self.assertAlmostEqual(float(np.sum(policy)), 1.0)
+        for action_id in support:
+            _, _, build = decoded_action(self.game, board, int(action_id))
+            self.assertEqual(build, (1, 3))
+
+    def test_mcts_with_one_ply_greedy_prior_finds_immediate_win(self):
+        board = self.empty_board()
+        board[1, 2, 2] = 2
+        board[1, 2, 3] = 3
+
+        mcts = MCTS(self.game, OnePlyGreedyNNet(self.game), dotdict({'numMCTSSims': 16, 'cpuct': 1.0}))
+        policy = mcts.getActionProb(board, temp=0)
+        chosen_action = int(np.argmax(policy))
+
+        self.assertIn(chosen_action, range(action(0, 4, 0), action(0, 4, 7) + 1))
+
+
+if __name__ == '__main__':
+    unittest.main()

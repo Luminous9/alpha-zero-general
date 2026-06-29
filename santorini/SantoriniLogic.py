@@ -60,14 +60,18 @@ class Board():
         chars_placed = 0
         char_list = [-1,-2, +1, +2]
         if self.true_random_placement:
-            while chars_placed < 4:
-                char = char_list[chars_placed]
-                
-                a = np.random.randint(0, self.n)
-                b = np.random.randint(0, self.n)
-                if self.pieces[0][a][b] == 0:
-                    self.pieces[0][a][b] = char
-                    chars_placed += 1   
+            while True:
+                self.pieces[0].fill(0)
+                chars_placed = 0
+                while chars_placed < 4:
+                    char = char_list[chars_placed]
+                    a = np.random.randint(0, self.n)
+                    b = np.random.randint(0, self.n)
+                    if self.pieces[0][a][b] == 0:
+                        self.pieces[0][a][b] = char
+                        chars_placed += 1
+                if self._random_start_allowed():
+                    break
         elif (self.n % 2 == 0):
             offset = int(self.n/2)
             if np.random.randint(0, 2) % 2 == 0:
@@ -92,6 +96,17 @@ class Board():
                 self.pieces[0][boardCenter +1][boardCenter]    = +2
                 self.pieces[0][boardCenter][boardCenter -1]    = -1
                 self.pieces[0][boardCenter][boardCenter +1]    = -2
+
+    def _random_start_allowed(self):
+        for color in (1, -1):
+            locations = self.getCharacterLocations(color)
+            if all(self._is_outer_edge(location) for location in locations):
+                return False
+        return True
+
+    def _is_outer_edge(self, location):
+        x, y = location
+        return x == 0 or y == 0 or x == self.n - 1 or y == self.n - 1
 
 
     # add [][] indexer syntax to the Board
@@ -197,9 +212,10 @@ class Board():
 
         # piecs can only change height by -2,-1,0 or 1 
         valid_height_diff = (height_diff <= 1)
+        not_domed = self.pieces[1][max(x-1,0):min(x+2,self.n), max(y-1,0):min(y+2,self.n)] <= 3
 
 
-        valid_move_locations = unoccupied_locations * valid_height_diff
+        valid_move_locations = unoccupied_locations * valid_height_diff * not_domed
         #print("valid_move_locations: ", move_locations)
 
         
@@ -259,7 +275,7 @@ class Board():
             # no build afterwards, we set all build locations on the board as valid
             # to hopefully give the network an easier chance of picking one of 
             # the correct moves.
-            valid_build_locations = build_locations
+            valid_build_locations = np.ones((3, 3), dtype=bool)
         else:
             
             unoccupied_locations = build_locations == 0
@@ -321,7 +337,7 @@ class Board():
             # no build afterwards, we set all build locations on the board as valid
             # to hopefully give the network an easier chance of picking one of 
             # the correct moves.
-            valid_build_locations = build_locations
+            valid_build_locations = np.ones(build_locations.shape, dtype=bool)
         else:
 
             # Wherever there is an empty space:
@@ -431,6 +447,9 @@ class Board():
             print(move_location)
             print(build_location)
             print("IGNORING MOVE:")
+
+        if self.pieces[1][move_location] == 3:
+            return
             
         try:
             self.pieces[1][build_location] += 1   # Build one block on build location

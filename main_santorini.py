@@ -59,10 +59,14 @@ def parse_args():
     parser.add_argument('--load-folder', type=str)
     parser.add_argument('--load-file', type=str, default='best.pth.tar')
     parser.add_argument('--load-model', action='store_true')
+    parser.add_argument('--load-examples', action='store_true')
+    parser.add_argument('--examples-file', type=str)
+    parser.add_argument('--skip-first-self-play', action='store_true')
     parser.add_argument('--history-iters', type=int)
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--batch-size', type=int)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--quiet', action='store_true')
     return parser.parse_args()
 
 
@@ -84,6 +88,7 @@ def build_coach_args(parsed_args):
         'load_model': parsed_args.load_model,
         'load_folder_file': (load_folder, parsed_args.load_file),
         'numItersForTrainExamplesHistory': parsed_args.history_iters or preset['numItersForTrainExamplesHistory'],
+        'quiet': parsed_args.quiet,
     })
 
 
@@ -95,6 +100,7 @@ def main():
     preset = PRESETS[parsed_args.preset]
     nnet_args.epochs = parsed_args.epochs or preset['epochs']
     nnet_args.batch_size = parsed_args.batch_size or preset['batch_size']
+    nnet_args.quiet = parsed_args.quiet
     coach_args = build_coach_args(parsed_args)
 
     log.info('Loading %s...', Game.__name__)
@@ -112,9 +118,15 @@ def main():
     log.info('Loading the Coach...')
     coach = Coach(game, nnet, coach_args)
 
-    if coach_args.load_model:
+    if coach_args.load_model and parsed_args.load_examples:
         log.info("Loading 'trainExamples' from file...")
-        coach.loadTrainExamples()
+        examples_file = parsed_args.examples_file
+        if examples_file is None and parsed_args.load_file == 'best.pth.tar':
+            examples_file = 'latest.examples'
+        coach.loadTrainExamples(
+            examples_file,
+            skipFirstSelfPlay=parsed_args.skip_first_self_play,
+        )
 
     log.info(
         'Config: preset=%s iters=%s eps=%s sims=%s arena=%s epochs=%s batch=%s checkpoint=%s',
