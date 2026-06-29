@@ -66,6 +66,7 @@ def parse_args():
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--batch-size', type=int)
     parser.add_argument('--self-play-batch-size', type=int, default=1)
+    parser.add_argument('--arena-batch-size', type=int)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--quiet', action='store_true')
     return parser.parse_args()
@@ -75,6 +76,7 @@ def build_coach_args(parsed_args):
     preset = PRESETS[parsed_args.preset]
     checkpoint = parsed_args.checkpoint or preset['checkpoint']
     load_folder = parsed_args.load_folder or checkpoint
+    arena_batch_size = parsed_args.arena_batch_size or parsed_args.self_play_batch_size
 
     return dotdict({
         'numIters': parsed_args.num_iters or preset['numIters'],
@@ -90,6 +92,7 @@ def build_coach_args(parsed_args):
         'load_folder_file': (load_folder, parsed_args.load_file),
         'numItersForTrainExamplesHistory': parsed_args.history_iters or preset['numItersForTrainExamplesHistory'],
         'selfPlayBatchSize': parsed_args.self_play_batch_size,
+        'arenaBatchSize': arena_batch_size,
         'quiet': parsed_args.quiet,
     })
 
@@ -131,13 +134,14 @@ def main():
         )
 
     log.info(
-        'Config: preset=%s iters=%s eps=%s sims=%s self_play_batch=%s arena=%s epochs=%s batch=%s checkpoint=%s',
+        'Config: preset=%s iters=%s eps=%s sims=%s self_play_batch=%s arena=%s arena_batch=%s epochs=%s batch=%s checkpoint=%s',
         parsed_args.preset,
         coach_args.numIters,
         coach_args.numEps,
         coach_args.numMCTSSims,
         coach_args.selfPlayBatchSize,
         coach_args.arenaCompare,
+        coach_args.arenaBatchSize,
         nnet_args.epochs,
         nnet_args.batch_size,
         coach_args.checkpoint,
