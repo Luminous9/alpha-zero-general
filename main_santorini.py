@@ -1,5 +1,6 @@
 import logging
 import argparse
+import random
 
 import coloredlogs
 import numpy as np
@@ -99,6 +100,7 @@ def build_coach_args(parsed_args):
 
 def main():
     parsed_args = parse_args()
+    random.seed(parsed_args.seed)
     np.random.seed(parsed_args.seed)
     torch.manual_seed(parsed_args.seed)
 

@@ -30,3 +30,33 @@
     - vs previous run best, 128 sims: 72-28
     - vs greedy, 128 sims: 97-3
     - _promoted as new baseline_
+
+4. Run #4 - 2026/06/29
+   Platform: Google Colab (CPU)
+   Iterations: 8
+   Time: 3 hours
+   Notes:
+   Results:
+    - vs previous run best, 128 sims: 58-42
+    - vs greedy, 128 sims: 100-0
+    - _promoted as new baseline_
+
+5. Run #5 - 2026/06/29
+   Platform: Kaggle (GPU)
+   Iterations: 20
+   Time: 1 hour
+   Notes:
+   Results:
+    - vs previous run best, 128 sims: 64-36
+    - vs greedy, 128 sims: 100-0
+    - _promoted as new baseline_
+
+6. Run #6 - 2026/06/29
+   Platform: Kaggle (GPU)
+   Iterations: 20
+   Time: 1 hour
+   Notes:
+   Results:
+    - vs previous run best, 128 sims: 73-27
+    - vs greedy, 128 sims: 98-2
+    - _promoted as new baseline_
