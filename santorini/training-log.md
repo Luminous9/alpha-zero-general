@@ -55,8 +55,49 @@
    Platform: Kaggle (GPU)
    Iterations: 20
    Time: 1 hour
-   Notes:
+   Notes: Use generated seed instead of static value of 9
    Results:
     - vs previous run best, 128 sims: 73-27
     - vs greedy, 128 sims: 98-2
+    - _promoted as new baseline_
+
+7. Run #7 - 2026/06/30
+   Platform: Kaggle (GPU)
+   Iterations: 60
+   Time: 2 hours 11 minutes
+   Notes:
+   Results:
+    - vs previous run best, 128 sims: 83-17
+    - vs greedy, 128 sims: 99-1
+    - _promoted as new baseline_
+
+8. Run #8 - 2026/06/30
+   Platform: Kaggle (GPU)
+   Iterations: 40
+   Time: 1 hour 25 minutes
+   Notes:
+   Results:
+    - vs previous run best, 128 sims: 69-31
+    - vs greedy, 128 sims: 100-0
+    - _promoted as new baseline_
+
+9. Run #9 - 2026/06/30
+   Platform: Kaggle (GPU)
+   Iterations: 20
+   Time: 45 minutes
+   Notes: Increased history_iters to 20, increased epochs to 5
+   Results:
+    - vs previous run best, 128 sims: 53-47
+    - vs greedy, 128 sims: 100-0
+    - Promoted tentatively, but on further testing later it seems at best it's even with run 8, or even a bit weaker
+
+10. Run #10 - 2026/06/30
+    Platform: Kaggle (GPU)
+    Iterations: 1 hour 38 minutes
+    Time: 1 hour 45 minutes
+    Notes: increased epochs to 6
+    Results:
+    - vs previous run best, 128 sims: 67-33
+    - vs greedy, 128 sims: 100-0
+    - against run 8 it went 56-44 and 52-48 in two 100 game matches, so not significantly better as the record against run 9 might suggest
     - _promoted as new baseline_
