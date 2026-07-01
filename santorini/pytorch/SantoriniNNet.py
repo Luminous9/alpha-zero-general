@@ -38,9 +38,7 @@ class SantoriniNNet(nn.Module):
             *[ResidualBlock(args.num_channels) for _ in range(args.num_residual_blocks)]
         )
 
-        self.policy_conv = nn.Conv2d(args.num_channels, 2, kernel_size=1, stride=1)
-        self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * self.board_x * self.board_y, self.action_size)
+        self.policy_conv = nn.Conv2d(args.num_channels, 64, kernel_size=1, stride=1)
 
         self.value_conv = nn.Conv2d(args.num_channels, 1, kernel_size=1, stride=1)
         self.value_bn = nn.BatchNorm2d(1)
@@ -51,9 +49,9 @@ class SantoriniNNet(nn.Module):
         s = self.stem(s)
         s = self.residual_blocks(s)
 
-        pi = F.relu(self.policy_bn(self.policy_conv(s)))
+        pi = self.policy_conv(s)
+        pi = pi.permute(0, 2, 3, 1).contiguous()
         pi = pi.view(pi.size(0), -1)
-        pi = self.policy_fc(pi)
 
         v = F.relu(self.value_bn(self.value_conv(s)))
         v = v.view(v.size(0), -1)

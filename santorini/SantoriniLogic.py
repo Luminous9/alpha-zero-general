@@ -187,8 +187,8 @@ class Board():
         Given a board location as an (x,y) tuple, this returns a tripple containing:
           1. an np.array of all legal actions in a vaugly human-readable format. 
               This is used by the game to perform actions.
-          2. an np.array of all 128 possible actions, include those that are illegal.
-          3. a binary np.array of which of the 128 actions are legal.
+          2. an np.array of all worker-labeled legacy actions, including those that are illegal.
+          3. a binary np.array of which of the legacy actions are legal.
         
         Technically, we should be careful to discriminate between 'actions,' and 'moves,'
         as in Santorini, an action is comprised of a (move, build) pair. Players make

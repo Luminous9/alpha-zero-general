@@ -97,7 +97,7 @@ class HumanSantoriniPlayer():
 
         move_direction = SANTORINI_DIRECTIONS.index(move_delta)
         build_direction = SANTORINI_DIRECTIONS.index(build_delta)
-        return worker_idx * 64 + move_direction * 8 + build_direction
+        return self.game.getActionFromOrigin(worker_location, move_direction, build_direction)
 
 # Renamed OthelloPlayers.py Function
 class GreedySantoriniPlayer():

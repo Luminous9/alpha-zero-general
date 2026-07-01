@@ -29,12 +29,9 @@ def parse_args():
 
 
 def describe_action(game, board, player, action, perspective_player):
-    worker_idx = action // 64
-    local_action = action % 64
-    move_direction = local_action // 8
-    build_direction = local_action % 8
+    origin, move_direction, build_direction = game.decodeAction(action)
 
-    origin = game.getCharacterLocations(board, player)[worker_idx]
+    worker_idx = game.getCharacterLocations(board, player).index(origin)
     move_delta = SANTORINI_DIRECTIONS[move_direction]
     build_delta = SANTORINI_DIRECTIONS[build_direction]
     move = (origin[0] + move_delta[0], origin[1] + move_delta[1])

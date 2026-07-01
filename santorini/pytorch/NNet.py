@@ -23,7 +23,7 @@ args = dotdict({
     'epochs': 10,
     'batch_size': 64,
     'cuda': torch.cuda.is_available(),
-    'input_channels': 8,
+    'input_channels': 6,
     'num_channels': 64,
     'num_residual_blocks': 5,
     'value_hidden_size': 128,
@@ -46,14 +46,12 @@ class NNetWrapper(NeuralNet):
         heights = board[1]
         encoded = np.zeros((args.input_channels, pieces.shape[0], pieces.shape[1]), dtype=np.float32)
 
-        encoded[0] = pieces == 1
-        encoded[1] = pieces == 2
-        encoded[2] = pieces == -1
-        encoded[3] = pieces == -2
-        encoded[4] = heights == 1
-        encoded[5] = heights == 2
-        encoded[6] = heights == 3
-        encoded[7] = heights >= 4
+        encoded[0] = pieces > 0
+        encoded[1] = pieces < 0
+        encoded[2] = heights == 1
+        encoded[3] = heights == 2
+        encoded[4] = heights == 3
+        encoded[5] = heights >= 4
 
         return encoded
 

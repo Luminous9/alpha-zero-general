@@ -19,6 +19,17 @@ class TestSantoriniRules(unittest.TestCase):
         board[0, 4, 3] = -2
         return board
 
+    def action(self, origin, move_direction, build_direction=0):
+        return self.game.getActionFromOrigin(origin, move_direction, build_direction)
+
+    def old_worker_policy_to_spatial(self, board, old_policy):
+        spatial_policy = np.zeros(self.game.getActionSize(), dtype=np.asarray(old_policy).dtype)
+        for worker_idx, origin in enumerate(self.game.getCharacterLocations(board, 1)):
+            old_offset = worker_idx * 64
+            new_offset = self.action(origin, 0, 0)
+            spatial_policy[new_offset:new_offset + 64] = old_policy[old_offset:old_offset + 64]
+        return spatial_policy
+
     def is_outer_edge(self, location):
         x, y = location
         return x == 0 or y == 0 or x == 4 or y == 4
@@ -45,7 +56,8 @@ class TestSantoriniRules(unittest.TestCase):
 
         valids = self.game.getValidMoves(board, 1)
 
-        east_move_actions = valids[4 * 8:5 * 8]
+        action_start = self.action((2, 2), 4, 0)
+        east_move_actions = valids[action_start:action_start + 8]
         self.assertEqual(int(east_move_actions.sum()), 0)
 
     def test_winning_move_ignores_build_suffix(self):
@@ -55,10 +67,11 @@ class TestSantoriniRules(unittest.TestCase):
         board[1, 2, 3] = 3
 
         valids = self.game.getValidMoves(board, 1)
-        east_move_actions = valids[4 * 8:5 * 8]
+        action_start = self.action((2, 2), 4, 0)
+        east_move_actions = valids[action_start:action_start + 8]
         self.assertEqual(int(east_move_actions.sum()), 8)
 
-        next_board, next_player = self.game.getNextState(board, 1, 4 * 8)
+        next_board, next_player = self.game.getNextState(board, 1, self.action((2, 2), 4, 0))
         self.assertEqual(next_board[0, 2, 3], 1)
         self.assertEqual(next_board[0, 2, 2], 0)
         self.assertEqual(int(next_board[1].sum()), int(board[1].sum()))
@@ -69,7 +82,7 @@ class TestSantoriniRules(unittest.TestCase):
         board[0, 2, 2] = 1
 
         # Worker 1 moves east, then builds west back on the square it left.
-        action = 4 * 8 + 3
+        action = self.action((2, 2), 4, 3)
         self.assertEqual(self.game.getValidMoves(board, 1)[action], 1)
 
         next_board, _ = self.game.getNextState(board, 1, action)
@@ -83,14 +96,15 @@ class TestSantoriniRules(unittest.TestCase):
         board[1, 1, 1] = 3
 
         # Move north, build west onto a level-three tower.
-        action = 1 * 8 + 3
+        action = self.action((2, 2), 1, 3)
         self.assertEqual(self.game.getValidMoves(board, 1)[action], 1)
 
         next_board, _ = self.game.getNextState(board, 1, action)
         self.assertEqual(next_board[1, 1, 1], 4)
 
         # From (1, 2), moving west onto the dome at (1, 1) is illegal.
-        self.assertEqual(int(self.game.getValidMoves(next_board, 1)[3 * 8:4 * 8].sum()), 0)
+        action_start = self.action((1, 2), 3, 0)
+        self.assertEqual(int(self.game.getValidMoves(next_board, 1)[action_start:action_start + 8].sum()), 0)
 
     def test_player_with_no_legal_moves_loses(self):
         board = np.zeros((2, 5, 5), dtype=int)
@@ -125,7 +139,10 @@ class TestSantoriniRules(unittest.TestCase):
         for _ in range(20):
             legacy_board = Board(5)
             legacy_board.pieces = np.copy(board)
-            expected = np.array(legacy_board.get_legal_moves_binary(1))
+            expected = self.old_worker_policy_to_spatial(
+                board,
+                np.array(legacy_board.get_legal_moves_binary(1)),
+            )
 
             actual = self.game.getValidMoves(board, 1)
 
@@ -146,6 +163,26 @@ class TestSantoriniRules(unittest.TestCase):
         self.assertEqual(ended, 0)
         np.testing.assert_array_equal(valids, self.game.getValidMoves(board, 1))
 
+    def test_same_color_label_swap_preserves_valid_moves(self):
+        board = self.empty_board()
+        board[0, 1, 1] = 1
+        board[0, 3, 3] = -1
+
+        swapped = board.copy()
+        worker_1 = board[0] == 1
+        worker_2 = board[0] == 2
+        opponent_1 = board[0] == -1
+        opponent_2 = board[0] == -2
+        swapped[0, worker_1] = 2
+        swapped[0, worker_2] = 1
+        swapped[0, opponent_1] = -2
+        swapped[0, opponent_2] = -1
+
+        np.testing.assert_array_equal(
+            self.game.getValidMoves(board, 1),
+            self.game.getValidMoves(swapped, 1),
+        )
+
     def test_human_coordinate_parser_uses_letter_columns_and_one_based_rows(self):
         self.assertEqual(parse_coordinate('B3', 5), (2, 1))
         self.assertEqual(parse_coordinate('b3', 5), (2, 1))
@@ -159,7 +196,8 @@ class TestSantoriniRules(unittest.TestCase):
 
         action = player._parse_action(board, 'O B1 A1')
 
-        self.assertEqual(action, 3)
+        origin = self.game.getCharacterLocations(board, 1)[0]
+        self.assertEqual(action, self.action(origin, 0, 3))
         self.assertEqual(self.game.getValidMoves(board, 1)[action], 1)
 
 

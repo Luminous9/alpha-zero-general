@@ -12,16 +12,13 @@ from utils import dotdict
 DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 
 
-def action(worker_index, move_direction, build_direction):
-    return worker_index * 64 + move_direction * 8 + build_direction
+def action(origin, move_direction, build_direction):
+    return (origin[0] * 5 + origin[1]) * 64 + move_direction * 8 + build_direction
 
 
 def decoded_action(game, board, action_id):
-    worker_index = 1 if action_id > 63 else 0
-    local_action = action_id % 64
-    move_direction = local_action // 8
-    build_direction = local_action % 8
-    worker = game.getCharacterLocations(board, 1)[worker_index]
+    del board
+    worker, move_direction, build_direction = game.decodeAction(action_id)
     move = (
         worker[0] + DIRECTIONS[move_direction][0],
         worker[1] + DIRECTIONS[move_direction][1],
@@ -77,7 +74,7 @@ class TestSantoriniTactics(unittest.TestCase):
         board[1, 2, 3] = 3
 
         policy, value, best_score, tie_count = greedy_targets(self.game, board)
-        east_winning_actions = range(action(0, 4, 0), action(0, 4, 7) + 1)
+        east_winning_actions = range(action((2, 2), 4, 0), action((2, 2), 4, 7) + 1)
 
         self.assertEqual(best_score, 100)
         self.assertEqual(value, 1)
@@ -93,7 +90,7 @@ class TestSantoriniTactics(unittest.TestCase):
 
         chosen_action = GreedySantoriniPlayer(self.game).play(board)
 
-        self.assertIn(chosen_action, range(action(0, 4, 0), action(0, 4, 7) + 1))
+        self.assertIn(chosen_action, range(action((2, 2), 4, 0), action((2, 2), 4, 7) + 1))
 
     def test_blocking_opponent_level_three_square_is_legal(self):
         board = self.empty_board()
@@ -145,7 +142,7 @@ class TestSantoriniTactics(unittest.TestCase):
         policy = mcts.getActionProb(board, temp=0)
         chosen_action = int(np.argmax(policy))
 
-        self.assertIn(chosen_action, range(action(0, 4, 0), action(0, 4, 7) + 1))
+        self.assertIn(chosen_action, range(action((2, 2), 4, 0), action((2, 2), 4, 7) + 1))
 
 
 if __name__ == '__main__':

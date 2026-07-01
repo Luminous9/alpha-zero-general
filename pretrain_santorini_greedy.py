@@ -29,11 +29,8 @@ DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 
 
 
 def decoded_action(game, board, player, action_id):
-    worker_index = 1 if action_id > 63 else 0
-    local_action = action_id % 64
-    move_direction = local_action // 8
-    build_direction = local_action % 8
-    worker = game.getCharacterLocations(board, player)[worker_index]
+    del board, player
+    worker, move_direction, build_direction = game.decodeAction(action_id)
     move = (
         worker[0] + DIRECTIONS[move_direction][0],
         worker[1] + DIRECTIONS[move_direction][1],

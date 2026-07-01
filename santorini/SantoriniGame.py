@@ -28,7 +28,8 @@ class SantoriniGame(Game):
         self.n = board_length
         self.true_random_placement = true_random_placement
         self._directions_array = np.array(self.__directions, dtype=np.int8)
-        self._action_worker = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_origin_x = np.zeros(self.getActionSize(), dtype=np.int8)
+        self._action_origin_y = np.zeros(self.getActionSize(), dtype=np.int8)
         self._action_move_direction = np.zeros(self.getActionSize(), dtype=np.int8)
         self._action_build_direction = np.zeros(self.getActionSize(), dtype=np.int8)
         self._action_move_dx = np.zeros(self.getActionSize(), dtype=np.int8)
@@ -56,13 +57,17 @@ class SantoriniGame(Game):
         
     def _init_action_tables(self):
         for action in range(self.getActionSize()):
+            origin = action // 64
+            origin_x = origin // self.n
+            origin_y = origin % self.n
             local_action = action % 64
             move_direction = local_action // 8
             build_direction = local_action % 8
             move_dx, move_dy = self.__directions[move_direction]
             build_dx, build_dy = self.__directions[build_direction]
 
-            self._action_worker[action] = action // 64
+            self._action_origin_x[action] = origin_x
+            self._action_origin_y[action] = origin_y
             self._action_move_direction[action] = move_direction
             self._action_build_direction[action] = build_direction
             self._action_move_dx[action] = move_dx
@@ -104,18 +109,23 @@ class SantoriniGame(Game):
             for flip in (False, True):
                 direction_map = self._direction_transform_indices(rotations, flip)
                 old_indices = np.arange(self.getActionSize())
-                new_indices = np.zeros(self.getActionSize(), dtype=np.int16)
+                new_indices = np.zeros(self.getActionSize(), dtype=np.int32)
 
-                for worker_offset in (0, 64):
-                    for move_direction in range(8):
-                        for build_direction in range(8):
-                            old_action = worker_offset + move_direction * 8 + build_direction
-                            new_action = (
-                                worker_offset
-                                + direction_map[move_direction] * 8
-                                + direction_map[build_direction]
-                            )
-                            new_indices[old_action] = new_action
+                for x in range(self.n):
+                    for y in range(self.n):
+                        new_x, new_y = self._transform_square(x, y, rotations, flip)
+                        origin_offset = (x * self.n + y) * 64
+                        new_origin_offset = (new_x * self.n + new_y) * 64
+
+                        for move_direction in range(8):
+                            for build_direction in range(8):
+                                old_action = origin_offset + move_direction * 8 + build_direction
+                                new_action = (
+                                    new_origin_offset
+                                    + direction_map[move_direction] * 8
+                                    + direction_map[build_direction]
+                                )
+                                new_indices[old_action] = new_action
 
                 permutations[(rotations, flip)] = (old_indices, new_indices)
 
@@ -133,21 +143,35 @@ class SantoriniGame(Game):
 
     def getActionSize(self):
         # return number of actions
-        return 128
+        return self.n * self.n * 64
+
+    def getActionFromOrigin(self, origin, move_direction, build_direction):
+        x, y = origin
+        return (x * self.n + y) * 64 + move_direction * 8 + build_direction
+
+    def decodeAction(self, action):
+        action = int(action)
+        origin = (
+            int(self._action_origin_x[action]),
+            int(self._action_origin_y[action]),
+        )
+        local_action = action % 64
+        return origin, local_action // 8, local_action % 8
 
     def getNextState(self, board, player, action):
         # if player takes action on board, return next (board,player)
         # action must be a valid move
 
-        piece_locations = self.getCharacterLocations(board, player)
         action = int(action)
-        worker_idx = int(self._action_worker[action])
+        current = (
+            int(self._action_origin_x[action]),
+            int(self._action_origin_y[action]),
+        )
         move_dx = int(self._action_move_dx[action])
         move_dy = int(self._action_move_dy[action])
         build_dx = int(self._action_build_dx[action])
         build_dy = int(self._action_build_dy[action])
 
-        current = piece_locations[worker_idx]
         move = (current[0] + move_dx, current[1] + move_dy)
         build = (move[0] + build_dx, move[1] + build_dy)
 
@@ -188,10 +212,10 @@ class SantoriniGame(Game):
         valids = np.zeros(self.getActionSize(), dtype=np.int8)
         player_pieces = player_pieces or self.getCharacterLocations(board, player)
 
-        for worker_idx, worker in enumerate(player_pieces):
+        for worker in player_pieces:
             x, y = worker
             origin_height = heights[x, y]
-            worker_offset = worker_idx * 64
+            action_offset = (x * self.n + y) * 64
 
             move_x = self._local_action_move_x[x, y]
             move_y = self._local_action_move_y[x, y]
@@ -222,7 +246,7 @@ class SantoriniGame(Game):
                 )
             )
 
-            valids[worker_offset:worker_offset + 64] = move_legal & build_legal
+            valids[action_offset:action_offset + 64] = move_legal & build_legal
 
         return valids
 
@@ -298,7 +322,7 @@ class SantoriniGame(Game):
     def getSymmetries(self, board, pi):
         # mirror, rotational
 
-        assert(len(pi) == 128)  # each player has two pieces which can move in 
+        assert(len(pi) == self.getActionSize())
 
         syms = []
         pi = np.asarray(pi)
@@ -319,14 +343,20 @@ class SantoriniGame(Game):
         return syms
 
     def _transform_policy(self, pi, rotations, flip):
-        transformed = np.zeros(128, dtype=np.asarray(pi).dtype)
         return self._transform_policy_array(np.asarray(pi), rotations, flip)
 
     def _transform_policy_array(self, pi, rotations, flip):
-        transformed = np.zeros(128, dtype=pi.dtype)
+        transformed = np.zeros(self.getActionSize(), dtype=pi.dtype)
         old_indices, new_indices = self._policy_symmetry_permutations[(rotations, flip)]
         transformed[new_indices] = pi[old_indices]
         return transformed
+
+    def _transform_square(self, x, y, rotations, flip):
+        for _ in range(rotations):
+            x, y = self.n - 1 - y, x
+        if flip:
+            y = self.n - 1 - y
+        return x, y
 
     def _direction_transform_indices(self, rotations, flip):
         direction_to_index = {direction: i for i, direction in enumerate(self.__directions)}

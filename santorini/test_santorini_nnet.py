@@ -14,7 +14,7 @@ class TestSantoriniNNet(unittest.TestCase):
         self.game = SantoriniGame(5)
         self.nnet = NNetWrapper(self.game)
 
-    def test_encode_board_uses_worker_identity_and_height_planes(self):
+    def test_encode_board_uses_anonymous_worker_and_height_planes(self):
         board = np.zeros((2, 5, 5), dtype=int)
         board[0, 1, 1] = 1
         board[0, 2, 2] = 2
@@ -27,22 +27,40 @@ class TestSantoriniNNet(unittest.TestCase):
 
         encoded = NNetWrapper.encode_board(board)
 
-        self.assertEqual(encoded.shape, (8, 5, 5))
+        self.assertEqual(encoded.shape, (6, 5, 5))
         self.assertEqual(encoded[0, 1, 1], 1)
-        self.assertEqual(encoded[1, 2, 2], 1)
-        self.assertEqual(encoded[2, 3, 3], 1)
-        self.assertEqual(encoded[3, 4, 4], 1)
-        self.assertEqual(encoded[4, 0, 0], 1)
-        self.assertEqual(encoded[5, 0, 1], 1)
-        self.assertEqual(encoded[6, 0, 2], 1)
-        self.assertEqual(encoded[7, 0, 3], 1)
+        self.assertEqual(encoded[0, 2, 2], 1)
+        self.assertEqual(encoded[1, 3, 3], 1)
+        self.assertEqual(encoded[1, 4, 4], 1)
+        self.assertEqual(encoded[2, 0, 0], 1)
+        self.assertEqual(encoded[3, 0, 1], 1)
+        self.assertEqual(encoded[4, 0, 2], 1)
+        self.assertEqual(encoded[5, 0, 3], 1)
+
+    def test_encode_board_ignores_same_color_worker_labels(self):
+        board = np.zeros((2, 5, 5), dtype=int)
+        board[0, 1, 1] = 1
+        board[0, 2, 2] = 2
+        board[0, 3, 3] = -1
+        board[0, 4, 4] = -2
+
+        swapped = board.copy()
+        swapped[0, 1, 1] = 2
+        swapped[0, 2, 2] = 1
+        swapped[0, 3, 3] = -2
+        swapped[0, 4, 4] = -1
+
+        np.testing.assert_array_equal(
+            NNetWrapper.encode_board(board),
+            NNetWrapper.encode_board(swapped),
+        )
 
     def test_predict_returns_policy_and_scalar_value(self):
         board = self.game.getCanonicalForm(self.game.getInitBoard(), 1)
 
         pi, v = self.nnet.predict(board)
 
-        self.assertEqual(pi.shape, (128,))
+        self.assertEqual(pi.shape, (self.game.getActionSize(),))
         self.assertAlmostEqual(float(pi.sum()), 1.0, places=5)
         self.assertIsInstance(v, float)
         self.assertGreaterEqual(v, -1.0)
@@ -56,7 +74,7 @@ class TestSantoriniNNet(unittest.TestCase):
 
         pis, vs = self.nnet.predict_batch(boards)
 
-        self.assertEqual(pis.shape, (2, 128))
+        self.assertEqual(pis.shape, (2, self.game.getActionSize()))
         self.assertEqual(vs.shape, (2,))
         for pi in pis:
             self.assertAlmostEqual(float(pi.sum()), 1.0, places=5)
@@ -88,7 +106,7 @@ class TestSantoriniNNet(unittest.TestCase):
 
         probs = mcts.getActionProb(board, temp=1)
 
-        self.assertEqual(len(probs), 128)
+        self.assertEqual(len(probs), self.game.getActionSize())
         self.assertAlmostEqual(sum(probs), 1.0, places=5)
 
 
